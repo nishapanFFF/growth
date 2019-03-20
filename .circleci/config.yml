@@ -1,0 +1,750 @@
+# CircleCI 2.0 configuration file
+
+version: 2
+
+
+# ---------------------------------------- Executors anchors
+
+executor_anchors:
+  docker_python_executor: &docker_python_executor
+    docker:
+      - image: circleci/python:3.6
+
+  docker_python_large_executor: &docker_python_large_executor
+    docker:
+      - image: circleci/python:3.6
+    resource_class: xlarge
+
+  docker_java_executor: &docker_java_executor
+    docker:
+      - image: circleci/openjdk@sha256:c85b606f81eec222c6d0e7a9b733cd589e03e033b31c2b77c36af588cd0a3cfb
+
+  docker_integration_test_executor: &docker_integration_test_executor
+    docker:
+      - image: circleci/openjdk@sha256:c85b606f81eec222c6d0e7a9b733cd589e03e033b31c2b77c36af588cd0a3cfb
+      - image: circleci/mysql:5.6-ram
+        environment:
+          MYSQL_ROOT_PASSWORD: root
+      - image: vsouza/sqs-local
+      - image: docker.elastic.co/elasticsearch/elasticsearch:6.3.2
+        environment:
+          xpack.security.enabled: false
+          transport.host: 127.0.0.1
+      - image: memcached:1.4
+
+  machine_executor: &machine_executor
+    machine:
+      image: circleci/classic:latest
+      # Need to check it's activated
+      docker_layer_caching: true
+
+
+# ---------------------------------------- Data cache anchors
+
+repo_anchors:
+  repo_cache_key:
+    &repo_cache_key v001-honeycomb-repo-cache-{{ .Environment.CIRCLE_SHA1 }}
+
+  repo_restore_cache: &repo_restore_cache
+    restore_cache:
+      key: *repo_cache_key
+
+  repo_save_cache: &repo_save_cache
+    save_cache:
+      key: *repo_cache_key
+      paths: ~/project
+
+maven_unittest_anchors:
+  maven_unittest_cache_key:
+    &maven_unittest_cache_key v005-honeycomb-maven-unittest-cache-{{ checksum "pom.xml" }}
+
+  maven_unittest_restore_cache: &maven_unittest_restore_cache
+    restore_cache:
+      key: *maven_unittest_cache_key
+
+  maven_unittest_save_cache: &maven_unittest_save_cache
+    save_cache:
+      key: *maven_unittest_cache_key
+      paths: ~/.m2
+
+maven_integrationtest_anchors:
+  maven_integrationtest_cache_key:
+    &maven_integrationtest_cache_key v005-honeycomb-maven-integrationtest-cache-{{ checksum "pom.xml" }}
+
+  maven_integrationtest_restore_cache: &maven_integrationtest_restore_cache
+    restore_cache:
+      key: *maven_integrationtest_cache_key
+
+  maven_integrationtest_save_cache: &maven_integrationtest_save_cache
+    save_cache:
+      key: *maven_integrationtest_cache_key
+      paths: ~/.m2
+
+# ---------------------------------------- Misc anchors
+
+add_github_key: &add_github_key
+  run:
+    name: Add GitHub key
+    command: |
+      ssh-keyscan -t rsa github.com >> ~/.ssh/known_hosts
+setup_maven: &setup_maven
+  run:
+    name: Configure maven to use private repo
+    command: |
+      mkdir -p ~/.m2
+      cp ~/project/.circleci/maven.xml ~/.m2/settings.xml
+
+download_appd_agent: &download_appd_agent
+  run:
+    name: Download Appdynamics Java agent
+    command: |
+      wget -nv https://packages.appdynamics.com/java/4.4.3.23530/AppServerAgent-4.4.3.23530.zip
+      cp AppServerAgent-4.4.3.23530.zip conductor
+      cp AppServerAgent-4.4.3.23530.zip content
+      cp AppServerAgent-4.4.3.23530.zip login
+      cp AppServerAgent-4.4.3.23530.zip maillist
+      cp AppServerAgent-4.4.3.23530.zip soteria
+      cp AppServerAgent-4.4.3.23530.zip user
+      cp AppServerAgent-4.4.3.23530.zip acl
+      cp AppServerAgent-4.4.3.23530.zip feature-flag
+
+# ---------------------------------------- AWS anchors
+
+# Needed only for container, machines have already AWS CLI
+aws_install_cli: &aws_install_cli
+  run:
+    name: Install AWS cli
+    command: |
+      sudo apt install awscli
+aws_install_ebcli: &aws_install_ebcli
+  run:
+    name: Install AWS Elastic Beanstalk CLI
+    command: |
+      pip install --upgrade pip --user | tee
+      pip install --upgrade --user awsebcli | tee
+aws_env_variables: &aws_env_variables
+  environment:
+    - AWS_REGION: us-west-2
+    - MAILLISTPROXY_NAME: maillistproxy
+    - MAILLISTPROXY_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/maillistproxy
+    - MAILLIST_NAME: maillist
+    - MAILLIST_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/maillist
+    - SOTERIAPROXY_NAME: soteriaproxy
+    - SOTERIAPROXY_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/soteriaproxy
+    - SOTERIA_NAME: soteria
+    - SOTERIA_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/soteria
+    - USERPROXY_NAME: usersproxy
+    - USERPROXY_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/userproxy
+    - USER_NAME: users
+    - USER_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/user
+    - CONTENTPROXY_NAME: contentproxy
+    - CONTENTPROXY_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/contentproxy
+    - CONTENT_NAME: content
+    - CONTENT_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/content
+    - CONDUCTORPROXY_NAME: conductorproxy
+    - CONDUCTORPROXY_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/conductorproxy
+    - CONDUCTOR_NAME: conductor
+    - CONDUCTOR_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/conductor
+    - LOGIN_NAME: login
+    - LOGIN_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/login
+    - ACL_NAME: acl
+    - ACL_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/acl
+    - FEATUREFLAG_NAME: featureflag
+    - FEATUREFLAG_REPO_URI: 190405961846.dkr.ecr.us-west-2.amazonaws.com/featureflag
+aws_docker_registry_login: &aws_docker_registry_login
+  run:
+    name: AWS docker registry login
+    command: |
+      eval `aws ecr get-login --no-include-email --region $AWS_REGION`
+aws_build_maillist_dockerrun: &aws_build_maillist_dockerrun
+  run:
+    name: Modifying the tag of the image in Dockerrun file for Maillist
+    command: |
+      cd maillist
+      awk -v sha1=$CIRCLE_SHA1 '{gsub(/<TAG_MARKER>/,sha1)} {print}' Dockerrun.aws.json > Dockerrun.aws.json_new
+      mv Dockerrun.aws.json_new Dockerrun.aws.json
+aws_build_soteria_dockerrun: &aws_build_soteria_dockerrun
+  run:
+    name: Modifying the tag of the image in Dockerrun file
+    command: |
+      cd soteria
+      awk -v sha1=$CIRCLE_SHA1 '{gsub(/<TAG_MARKER>/,sha1)} {print}' Dockerrun.aws.json > Dockerrun.aws.json_new
+      mv Dockerrun.aws.json_new Dockerrun.aws.json
+aws_build_user_dockerrun: &aws_build_user_dockerrun
+  run:
+    name: Modifying the tag of the image in Dockerrun file for User
+    command: |
+      cd user
+      awk -v sha1=$CIRCLE_SHA1 '{gsub(/<TAG_MARKER>/,sha1)} {print}' Dockerrun.aws.json > Dockerrun.aws.json_new
+      mv Dockerrun.aws.json_new Dockerrun.aws.json
+aws_build_content_dockerrun: &aws_build_content_dockerrun
+  run:
+    name: Modifying the tag of the image in Dockerrun file for Content
+    command: |
+      cd content
+      awk -v sha1=$CIRCLE_SHA1 '{gsub(/<TAG_MARKER>/,sha1)} {print}' Dockerrun.aws.json > Dockerrun.aws.json_new
+      mv Dockerrun.aws.json_new Dockerrun.aws.json
+aws_build_conductor_dockerrun: &aws_build_conductor_dockerrun
+  run:
+    name: Modifying the tag of the image in Dockerrun file for conductor
+    command: |
+      cd conductor
+      awk -v sha1=$CIRCLE_SHA1 '{gsub(/<TAG_MARKER>/,sha1)} {print}' Dockerrun.aws.json > Dockerrun.aws.json_new
+      mv Dockerrun.aws.json_new Dockerrun.aws.json
+aws_build_login_dockerrun: &aws_build_login_dockerrun
+  run:
+    name: Modifying the tag of the image in Dockerrun file for login
+    command: |
+      cd login
+      awk -v sha1=$CIRCLE_SHA1 '{gsub(/<TAG_MARKER>/,sha1)} {print}' Dockerrun.aws.json > Dockerrun.aws.json_new
+      mv Dockerrun.aws.json_new Dockerrun.aws.json
+aws_build_acl_dockerrun: &aws_build_acl_dockerrun
+  run:
+    name: Modifying the tag of the image in Dockerrun file for acl
+    command: |
+      cd acl
+      awk -v sha1=$CIRCLE_SHA1 '{gsub(/<TAG_MARKER>/,sha1)} {print}' Dockerrun.aws.json > Dockerrun.aws.json_new
+      mv Dockerrun.aws.json_new Dockerrun.aws.json
+aws_build_featureflag_dockerrun: &aws_build_featureflag_dockerrun
+  run:
+    name: Modifying the tag of the image in Dockerrun file for featureflag
+    command: |
+      cd feature-flag
+      awk -v sha1=$CIRCLE_SHA1 '{gsub(/<TAG_MARKER>/,sha1)} {print}' Dockerrun.aws.json > Dockerrun.aws.json_new
+      mv Dockerrun.aws.json_new Dockerrun.aws.json
+
+# ---------------------------------------- Jobs
+
+jobs:
+  checkout_code:
+    <<: *docker_python_executor
+    steps:
+      - *repo_restore_cache
+      - checkout
+      - *repo_save_cache
+      - run:
+          name: Message
+          command: |
+            echo "Checkout done"
+  unittest_microservices:
+    <<: *docker_java_executor
+    steps:
+    - *repo_restore_cache
+    - *maven_unittest_restore_cache
+    - *setup_maven
+    - run:
+        name: Test all microservices that have unit tests
+        command: |
+          echo 'export MAVEN_OPTS="-Xmx1280m -XX:MaxMetaspaceSize=512m"' > ~/.bash_profile
+          source ~/.bash_profile
+          mvn test -T 1 | tee
+    - *maven_unittest_save_cache
+    - run:
+        name: Save test results
+        command: |
+          mkdir -p ~/unitTestResults/
+          find . -type f -regex ".*/target/surefire-reports/.*xml" -exec cp {} ~/unitTestResults/ \;
+        when: always
+    - store_test_results:
+        path: ~/unitTestResults
+    - store_artifacts:
+        path: ~/unitTestResults
+
+  integrationtest_microservices:
+    <<: *docker_integration_test_executor
+    steps:
+    - run:
+        name: install dockerize util
+        command: wget https://github.com/jwilder/dockerize/releases/download/$DOCKERIZE_VERSION/dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz && sudo tar -C /usr/local/bin -xzvf dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz && rm dockerize-linux-amd64-$DOCKERIZE_VERSION.tar.gz
+        environment:
+          DOCKERIZE_VERSION: v0.6.1
+    - run:
+        name: Wait for local db
+        command: dockerize -wait tcp://127.0.0.1:3306 -timeout 30s
+    - run:
+        name: Wait for local SQS
+        command: dockerize -wait tcp://127.0.0.1:9324 -timeout 30s
+    - run:
+        name: wait for local Elasticsearch
+        command: dockerize -wait tcp://127.0.0.1:9200 -timeout 30s
+    - run:
+        name: wait for local memcached
+        command: dockerize -wait tcp://127.0.0.1:11211 -timeout 30s
+    - *repo_restore_cache
+    - *maven_integrationtest_restore_cache
+    - *setup_maven
+    - run:
+        name: Test all microservices that have integration tests
+        command: |
+          echo 'export MAVEN_OPTS="-Xmx2048m -XX:MaxMetaspaceSize=512m"' > ~/.bash_profile
+          source ~/.bash_profile
+          mvn --batch-mode install -DskipTests -pl maillist -pl user && mvn --batch-mode failsafe:integration-test failsafe:verify -pl maillist -pl user | tee
+    - *maven_integrationtest_save_cache
+    - run:
+        name: Save test results
+        command: |
+          mkdir -p ~/integrationTestResults/
+          find . -type f -regex ".*/target/failsafe-reports/.*xml" -exec cp {} ~/integrationTestResults/ \;
+        when: always
+    - store_test_results:
+        path: ~/integrationTestResults
+    - store_artifacts:
+        path: ~/integrationTestResults
+
+  filter_gate:
+    <<: *docker_python_executor
+    steps:
+    - run:
+        name: Dummy job to add filter to one job instead of mumtiple
+        command: |
+          echo "Act like a gate"
+  maillistproxy_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_docker_registry_login
+      - run:
+          name: Build maillist proxy and push to AWS Docker Registry
+          command: |
+            cd maillist/proxy
+            docker build -t $MAILLISTPROXY_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $MAILLISTPROXY_NAME:$CIRCLE_SHA1 $MAILLISTPROXY_REPO_URI:$CIRCLE_SHA1
+            docker push $MAILLISTPROXY_REPO_URI:$CIRCLE_SHA1 | tee
+  soteriaproxy_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_docker_registry_login
+      - run:
+          name: Build soteria proxy and push to AWS Docker Registry
+          command: |
+            cd soteria/proxy
+            docker build -t $SOTERIAPROXY_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $SOTERIAPROXY_NAME:$CIRCLE_SHA1 $SOTERIAPROXY_REPO_URI:$CIRCLE_SHA1
+            docker push $SOTERIAPROXY_REPO_URI:$CIRCLE_SHA1 | tee
+  userproxy_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_docker_registry_login
+      - run:
+          name: Build user proxy and push to AWS Docker Registry
+          command: |
+            cd user/proxy
+            docker build -t $USERPROXY_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $USERPROXY_NAME:$CIRCLE_SHA1 $USERPROXY_REPO_URI:$CIRCLE_SHA1
+            docker push $USERPROXY_REPO_URI:$CIRCLE_SHA1 | tee
+  contentproxy_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_docker_registry_login
+      - run:
+          name: Build content proxy and push to AWS Docker Registry
+          command: |
+            cd content/proxy
+            docker build -t $CONTENTPROXY_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $CONTENTPROXY_NAME:$CIRCLE_SHA1 $CONTENTPROXY_REPO_URI:$CIRCLE_SHA1
+            docker push $CONTENTPROXY_REPO_URI:$CIRCLE_SHA1 | tee
+  conductorproxy_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_docker_registry_login
+      - run:
+          name: Build conductor proxy and push to AWS Docker Registry
+          command: |
+            cd conductor/proxy
+            docker build -t $CONDUCTORPROXY_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $CONDUCTORPROXY_NAME:$CIRCLE_SHA1 $CONDUCTORPROXY_REPO_URI:$CIRCLE_SHA1
+            docker push $CONDUCTORPROXY_REPO_URI:$CIRCLE_SHA1 | tee
+  maillist_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *maven_unittest_restore_cache
+      - *aws_docker_registry_login
+      - *download_appd_agent
+      - run:
+          name: Build maillist proxy and push to AWS Docker Registry
+          command: |
+            mvn -Ddockerfile.skip=true -Dmaven.test.skip=true package -pl maillist | tee
+            cd maillist
+            docker build -t $MAILLIST_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $MAILLIST_NAME:$CIRCLE_SHA1 $MAILLIST_REPO_URI:$CIRCLE_SHA1
+            docker push $MAILLIST_REPO_URI:$CIRCLE_SHA1 | tee
+  soteria_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *maven_unittest_restore_cache
+      - *aws_docker_registry_login
+      - *download_appd_agent
+      - run:
+          name: Build soteria proxy and push to AWS Docker Registry
+          command: |
+            mvn -Ddockerfile.skip=true -Dmaven.test.skip=true package -pl soteria | tee
+            cd soteria
+            docker build -t $SOTERIA_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $SOTERIA_NAME:$CIRCLE_SHA1 $SOTERIA_REPO_URI:$CIRCLE_SHA1
+            docker push $SOTERIA_REPO_URI:$CIRCLE_SHA1 | tee
+  user_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *maven_unittest_restore_cache
+      - *aws_docker_registry_login
+      - *download_appd_agent
+      - run:
+          name: Build user and push to AWS Docker Registry
+          command: |
+            mvn -Ddockerfile.skip=true -Dmaven.test.skip=true package -pl user | tee
+            cd user
+            docker build -t $USER_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $USER_NAME:$CIRCLE_SHA1 $USER_REPO_URI:$CIRCLE_SHA1
+            docker push $USER_REPO_URI:$CIRCLE_SHA1 | tee
+  content_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *maven_unittest_restore_cache
+      - *aws_docker_registry_login
+      - *download_appd_agent
+      - run:
+          name: Build content and push to AWS Docker Registry
+          command: |
+            mvn -Ddockerfile.skip=true -Dmaven.test.skip=true package -pl content | tee
+            cd content
+            docker build -t $CONTENT_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $CONTENT_NAME:$CIRCLE_SHA1 $CONTENT_REPO_URI:$CIRCLE_SHA1
+            docker push $CONTENT_REPO_URI:$CIRCLE_SHA1 | tee
+  conductor_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *maven_unittest_restore_cache
+      - *aws_docker_registry_login
+      - *download_appd_agent
+      - run:
+          name: Build conductor and push to AWS Docker Registry
+          command: |
+            mvn -Ddockerfile.skip=true -Dmaven.test.skip=true package -pl conductor | tee
+            cd conductor
+            docker build -t $CONDUCTOR_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $CONDUCTOR_NAME:$CIRCLE_SHA1 $CONDUCTOR_REPO_URI:$CIRCLE_SHA1
+            docker push $CONDUCTOR_REPO_URI:$CIRCLE_SHA1 | tee
+  login_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *maven_unittest_restore_cache
+      - *aws_docker_registry_login
+      - *download_appd_agent
+      - run:
+          name: Build login proxy and push to AWS Docker Registry
+          command: |
+            mvn -Ddockerfile.skip=true -Dmaven.test.skip=true package -pl login | tee
+            cd login
+            docker build -t $LOGIN_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $LOGIN_NAME:$CIRCLE_SHA1 $LOGIN_REPO_URI:$CIRCLE_SHA1
+            docker push $LOGIN_REPO_URI:$CIRCLE_SHA1 | tee
+  acl_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *maven_unittest_restore_cache
+      - *aws_docker_registry_login
+      - *download_appd_agent
+      - run:
+          name: Build acl proxy and push to AWS Docker Registry
+          command: |
+            mvn -Ddockerfile.skip=true -Dmaven.test.skip=true package -pl acl | tee
+            cd acl
+            docker build -t $ACL_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $ACL_NAME:$CIRCLE_SHA1 $ACL_REPO_URI:$CIRCLE_SHA1
+            docker push $ACL_REPO_URI:$CIRCLE_SHA1 | tee
+  featureflag_build_and_push_to_registry:
+    <<: *machine_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *maven_unittest_restore_cache
+      - *aws_docker_registry_login
+      - *download_appd_agent
+      - run:
+          name: Build featureflag proxy and push to AWS Docker Registry
+          command: |
+            mvn -Ddockerfile.skip=true -Dmaven.test.skip=true package -pl feature-flag | tee
+            cd feature-flag
+            docker build -t $FEATUREFLAG_NAME:$CIRCLE_SHA1 --file Dockerfile . | tee
+            docker tag $FEATUREFLAG_NAME:$CIRCLE_SHA1 $FEATUREFLAG_REPO_URI:$CIRCLE_SHA1
+            docker push $FEATUREFLAG_REPO_URI:$CIRCLE_SHA1 | tee
+  maillist_deploy:
+    <<: *docker_python_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_build_maillist_dockerrun
+      - *aws_install_ebcli
+      - run:
+          name: Deploying Maillist
+          command: |
+            source .circleci/setup_gitflow.sh
+            cd maillist
+            git add Dockerrun.aws.json
+            PATH=~/.local/bin:$PATH
+            eb use --region $ENV_REGION maillist-$ENV_SUFFIX
+            eb deploy -v --staged --region $ENV_REGION | tee
+            eb labs cleanup-versions --older-than 0 --num-to-leave 10 --force
+  soteria_deploy:
+    <<: *docker_python_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_build_soteria_dockerrun
+      - *aws_install_ebcli
+      - run:
+          name: Deploying Soteria
+          command: |
+            source .circleci/setup_gitflow.sh
+            cd soteria
+            git add Dockerrun.aws.json
+            PATH=~/.local/bin:$PATH
+            eb use --region $ENV_REGION soteria-$ENV_SUFFIX
+            eb deploy -v --staged --region $ENV_REGION| tee
+            eb labs cleanup-versions --older-than 0 --num-to-leave 10 --force
+  user_deploy:
+    <<: *docker_python_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_build_user_dockerrun
+      - *aws_install_ebcli
+      - run:
+          name: Deploying User
+          command: |
+            source .circleci/setup_gitflow.sh
+            cd user
+            git add Dockerrun.aws.json
+            PATH=~/.local/bin:$PATH
+            eb use --region $ENV_REGION user-$ENV_SUFFIX
+            eb deploy -v --staged --region $ENV_REGION| tee
+            eb labs cleanup-versions --older-than 0 --num-to-leave 10 --force
+  content_deploy:
+    <<: *docker_python_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_build_content_dockerrun
+      - *aws_install_ebcli
+      - run:
+          name: Deploying Content
+          command: |
+            source .circleci/setup_gitflow.sh
+            cd content
+            git add Dockerrun.aws.json
+            PATH=~/.local/bin:$PATH
+            eb use --region $ENV_REGION content-$ENV_SUFFIX
+            eb deploy -v --staged --region $ENV_REGION| tee
+            eb labs cleanup-versions --older-than 0 --num-to-leave 10 --force
+  conductor_deploy:
+    <<: *docker_python_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_build_conductor_dockerrun
+      - *aws_install_ebcli
+      - run:
+          name: Deploying conductor
+          command: |
+            source .circleci/setup_gitflow.sh
+            cd conductor
+            git add Dockerrun.aws.json
+            PATH=~/.local/bin:$PATH
+            eb use --region $ENV_REGION conductor-$ENV_SUFFIX
+            eb deploy -v --staged --region $ENV_REGION| tee
+            eb labs cleanup-versions --older-than 0 --num-to-leave 10 --force
+  login_deploy:
+    <<: *docker_python_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_build_login_dockerrun
+      - *aws_install_ebcli
+      - run:
+          name: Deploying login
+          command: |
+            source .circleci/setup_gitflow.sh
+            cd login
+            git add Dockerrun.aws.json
+            PATH=~/.local/bin:$PATH
+            eb use --region $ENV_REGION login-$ENV_SUFFIX
+            eb deploy -v --staged --region $ENV_REGION| tee
+            eb labs cleanup-versions --older-than 0 --num-to-leave 10 --force
+  acl_deploy:
+    <<: *docker_python_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_build_acl_dockerrun
+      - *aws_install_ebcli
+      - run:
+          name: Deploying acl
+          command: |
+            source .circleci/setup_gitflow.sh
+            cd acl
+            git add Dockerrun.aws.json
+            PATH=~/.local/bin:$PATH
+            eb use --region $ENV_REGION acl-$ENV_SUFFIX
+            eb deploy -v --staged --region $ENV_REGION| tee
+            eb labs cleanup-versions --older-than 0 --num-to-leave 10 --force
+  featureflag_deploy:
+    <<: *docker_python_executor
+    <<: *aws_env_variables
+    steps:
+      - *repo_restore_cache
+      - *aws_build_featureflag_dockerrun
+      - *aws_install_ebcli
+      - run:
+          name: Deploying featureflag
+          command: |
+            source .circleci/setup_gitflow.sh
+            cd feature-flag
+            git add Dockerrun.aws.json
+            PATH=~/.local/bin:$PATH
+            eb use --region $ENV_REGION feature-flag-$ENV_SUFFIX
+            eb deploy -v --staged --region $ENV_REGION| tee
+            eb labs cleanup-versions --older-than 0 --num-to-leave 10 --force
+  allbuildok_gate:
+    <<: *docker_python_executor
+    steps:
+      - run:
+          name: Dummy job to make sure all build jobs are ok
+          command: |
+            echo "Act like a gate"
+# ---------------------------------------- Workflows
+
+workflows:
+  version: 2
+
+  test_and_build:
+    jobs:
+      - checkout_code
+
+      - unittest_microservices:
+          requires:
+            - checkout_code
+
+      - integrationtest_microservices:
+          requires:
+          - checkout_code
+
+      - filter_gate:
+          requires:
+            - unittest_microservices
+            - integrationtest_microservices
+          filters:
+            branches:
+              only:
+                - "dev"
+                - "/release.+/"
+                - "master"
+
+      - maillistproxy_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - maillist_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - soteriaproxy_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - soteria_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - userproxy_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - user_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - contentproxy_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - content_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - conductorproxy_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - conductor_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - login_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - acl_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - featureflag_build_and_push_to_registry:
+          requires:
+            - filter_gate
+      - allbuildok_gate:
+          requires:
+            - maillistproxy_build_and_push_to_registry
+            - maillist_build_and_push_to_registry
+            - soteriaproxy_build_and_push_to_registry
+            - soteria_build_and_push_to_registry
+            - userproxy_build_and_push_to_registry
+            - user_build_and_push_to_registry
+            - contentproxy_build_and_push_to_registry
+            - content_build_and_push_to_registry
+            - conductorproxy_build_and_push_to_registry
+            - conductor_build_and_push_to_registry
+            - login_build_and_push_to_registry
+            - acl_build_and_push_to_registry
+            - featureflag_build_and_push_to_registry
+
+      - maillist_deploy:
+          requires:
+            - allbuildok_gate
+
+      - soteria_deploy:
+          requires:
+            - allbuildok_gate
+
+      - user_deploy:
+          requires:
+            - allbuildok_gate
+
+      - content_deploy:
+          requires:
+            - allbuildok_gate
+
+      - conductor_deploy:
+          requires:
+            - allbuildok_gate
+
+      - login_deploy:
+          requires:
+            - allbuildok_gate
+
+      - acl_deploy:
+          requires:
+            - allbuildok_gate
+
+      - featureflag_deploy:
+          requires:
+            - allbuildok_gate

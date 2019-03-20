@@ -1,0 +1,4 @@
+dev dev us-west-2
+qa  release/REL0  us-west-2
+staging  release/REL3  us-west-2
+prod master us-east-1

@@ -1,0 +1,70 @@
+app:
+  authBypassed: false
+  # Things written as ${} are replaced by environment variables or by entries in the property file
+  party3ApiKey: ${PARTY_3_API_KEY}
+  nonSecretProperty: ${NON_SECRET_PROPERTY}
+  maxThread: ${MAX_THREAD}
+  userAddress:
+  v1BackendKey: ${V1_BACKEND_KEY} # key sent between backend services
+  v1BackendJwt: ${CLIENT_JWT_TOKEN} # jwt sent between backend services
+
+pushReadDatabase:
+  driverClass: com.mysql.jdbc.Driver
+  url: jdbc:mysql://${PUSH_RO_DB_HOST}/${DB_NA_PUSH_NAME}?zeroDateTimeBehavior=convertToNull
+  user: ${PUSH_RO_DB_USERNAME}
+  password: ${PUSH_RO_DB_PASSWORD}
+
+shopWriteDatabase:
+  driverClass: com.mysql.jdbc.Driver
+  url: jdbc:mysql://${DB_RW_SHOP_HOST}/${DB_RW_SHOP_NAME}
+  user: ${DB_RW_SHOP_USERNAME}
+  password: ${DB_RW_SHOP_PASSWORD}
+  maxWaitForConnection: 1s
+  validationQuery: "/* MyService Health Check */ SELECT 1"
+  validationQueryTimeout: 3s
+  
+  # the maximum amount of time to wait on an empty pool before throwing an exception
+  maxWaitForConnection: 1s
+
+  # the SQL query to run when validating a connection's liveness
+  validationQuery: "/* MyService Health Check */ SELECT 1"
+
+  # the timeout before a connection validation queries fail
+  validationQueryTimeout: 3s
+
+  # Default minimum number of connections: 10
+
+  # Default maximum number of connections: 100
+
+server:
+  applicationConnectors:
+    - type: http
+      port: 8080
+      bindHost: 0.0.0.0
+      useServerHeader: false
+      useDateHeader: false
+      useForwardedHeaders: false
+  adminConnectors:
+    - type: http
+      port: 8081
+      acceptorThreads: 1
+      selectorThreads: 1
+  requestLog:
+    appenders: []
+
+logging:
+  level: INFO
+  loggers:
+    com.fabfitfun.com: INFO
+    io.dropwizard: INFO
+    # Jetty outputs port information at INFO
+    org.eclipse.jetty: INFO
+
+swagger:
+  id: Sample Swagger API Document
+  resourcePackages:
+    - com.fabfitfun.sample.api
+  openAPI:
+    info:
+      title: Sample Swagger API Document
+      version: 1.0.0
