@@ -54,15 +54,18 @@ public class FacebookResource {
 	@PermissionAllowed(id = AuthChecker.GROWTH_ADMIN_OPERATION, level = READ)
 	public FacebookStatus subscribe(@NotNull @Valid FacebookSubscribeEvent event) throws InterruptedException {
 		log.infof("Received event");
-		executor.execute(() -> {
-            try {
-                Thread.sleep(5000);
-                log.infof("sending subscribe event.");
-                boolean result = this.facebookMetrics.subscribe(event);
-            } catch (InterruptedException e) {
-            	log.infof("subscribe caught: " + e.getMessage());
-            }
-        });
+        boolean result = this.facebookMetrics.subscribe(event);
+
+        // async
+//		executor.execute(() -> {
+//            try {
+//                Thread.sleep(5000);
+//                log.infof("sending subscribe event.");
+//                boolean result = this.facebookMetrics.subscribe(event);
+//            } catch (InterruptedException e) {
+//            	log.infof("subscribe caught: " + e.getMessage());
+//            }
+//        });
 		return new FacebookStatus(true);
 	}
 }
